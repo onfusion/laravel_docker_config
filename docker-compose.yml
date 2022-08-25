@@ -1,0 +1,144 @@
+version: "3"
+
+volumes:
+  db-store:
+  psysh-store:
+
+services:
+    # PHP APPLICATION
+  app:
+    container_name: php
+    build:
+      context: .
+      dockerfile: ./docker/php/Dockerfile
+      target: ${APP_BUILD_TARGET:-development}
+    volumes:
+      - type: bind
+        source: ./src
+        target: /data
+      - type: volume
+        source: psysh-store
+        target: /root/.config/psysh
+        volume:
+          nocopy: true
+    environment:
+      - APP_DEBUG=${APP_DEBUG:-true}
+      - APP_KEY=${APP_KEY:-XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX}
+      - APP_ENV=${APP_ENV:-local}
+      - APP_URL=${APP_URL:-http://localhost}
+      - LOG_CHANNEL=${LOG_CHANNEL:-stderr}
+      - LOG_STDERR_FORMATTER=${LOG_STDERR_FORMATTER:-Monolog\Formatter\JsonFormatter}
+      - DB_CONNECTION=${DB_CONNECTION:-mysql}
+      - DB_HOST=${DB_HOST:-db}
+      - DB_PORT=${DB_PORT:-3306}
+      - DB_DATABASE=${DB_DATABASE:-laravel}
+      - DB_USERNAME=${DB_USERNAME:-phper}
+      - DB_PASSWORD=${DB_PASSWORD:-secret}
+
+  # WEB SERVER
+  web:
+    container_name: nginx
+    build:
+      context: .
+      dockerfile: ./docker/nginx/Dockerfile
+    ports:
+      - target: 80
+        published: ${WEB_PUBLISHED_PORT:-80}
+        protocol: tcp
+        mode: host
+    volumes:
+      - type: bind
+        source: ./src
+        target: /data
+
+  # MYSQL DATABASE
+  db:
+    container_name: mysql
+    build:
+      context: .
+      dockerfile: ./docker/mysql/Dockerfile
+    ports:
+      - target: 3306
+        published: ${DB_PUBLISHED_PORT:-3306}
+        protocol: tcp
+        mode: host
+    volumes:
+      - type: volume
+        source: db-store
+        target: /var/lib/mysql
+        volume:
+          nocopy: true
+    environment:
+      - MYSQL_DATABASE=${TELESCOPE_DB_DATABASE:-whoosh_laravel}
+      - MYSQL_USER=${TELESCOPE_DB_USERNAME:-root}
+      - MYSQL_PASSWORD=${TELESCOPE_DB_PASSWORD:-secret}
+      - MYSQL_ROOT_PASSWORD=${TELESCOPE_DB_PASSWORD:-secret}
+
+  # PHPMYADMIN
+  phpmyadmin:
+    container_name: pma
+    build:
+      context: .
+      dockerfile: ./docker/pma/Dockerfile
+    ports:
+      - '8080:80'
+    restart: always
+    environment:
+      PMA_HOST: db
+    depends_on:
+      - db
+
+  # RABBITMQ
+  rabbitmq:
+    container_name: rabbitmq
+    build:
+      context: .
+      dockerfile: ./docker/rabbitmq/Dockerfile
+    volumes:
+      - ~/docker/rabbitmq/data/:/var/lib/rabbitmq/
+      - ~/docker/rabbitmq/logs/:/var/log/rabbitmq/
+      - ~/docker/rabbitmq/rabbitmq.conf/:/etc/rabbitmq/rabbitmq.config
+    environment:
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - 5672:5672
+      - 15672:15672
+
+  # MONGO
+  mongo:
+    container_name: mongo
+    build:
+      context: .
+      dockerfile: ./docker/mongo/Dockerfile
+    restart: always
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${DB_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: secret
+
+  # MONGO EXPRESS
+  mongo-express:
+    container_name: mongo-express
+    build:
+      context: .
+      dockerfile: ./docker/express/Dockerfile
+    restart: always
+    ports:
+      - 8081:8081
+    environment:
+      ME_CONFIG_MONGODB_ADMINUSERNAME: root
+      ME_CONFIG_MONGODB_ADMINPASSWORD: secret
+      ME_CONFIG_MONGODB_URL: mongodb://root:example@mongo:27017/
+
+  # MAILHOG
+  mailhog:
+    container_name: mailhog
+    build:
+      context: .
+      dockerfile: ./docker/mail/Dockerfile
+    ports:
+      - target: 8025
+        published: ${MAILHOG_PUBLISHED_PORT:-8025}
+        protocol: tcp
+        mode: host
